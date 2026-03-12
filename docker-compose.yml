@@ -1,0 +1,47 @@
+services:
+  nginx:
+    build:
+      context: ./docker/nginx
+      dockerfile: nginx.docker
+    container_name: ${NGINX_CONTAINER}
+    ports:
+      - ${NGINX_PORT}:80
+    volumes:
+      - ./app:${ROOT_PATH}
+      - /etc/localtime:/etc/localtime:ro
+    working_dir: ${ROOT_PATH}
+    depends_on:
+      - php
+    networks:
+      - app-network
+
+  php:
+    build:
+      context: ./docker/php
+      dockerfile: php-fpm.docker
+      target: base
+      args:
+        - USER_ID
+        - GROUP_ID
+    container_name: ${PHP_NAME}
+    volumes:
+      - ./app:${ROOT_PATH}
+      - /etc/localtime:/etc/localtime:ro
+      - composer:/root/.composer/cache
+    working_dir: ${ROOT_PATH}
+    dns:
+      - 8.8.8.8
+      - 4.4.4.4
+      - 0.0.0.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app-network
+
+volumes:
+  composer:
+
+
+networks:
+  app-network:
+    driver: bridge

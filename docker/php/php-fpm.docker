@@ -1,0 +1,65 @@
+# Используем образ PHP 8.3 с FPM в качестве базового (stage 'base')
+FROM php:8.3-fpm AS base
+ENV TZ=Europe/Moscow
+
+COPY --from=mlocati/php-extension-installer \
+ /usr/bin/install-php-extensions /usr/local/bin/
+
+RUN apt-get update && apt-get install -y zlib1g-dev g++ git libicu-dev zip libzip-dev zip \
+    libfreetype-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libzip-dev \
+    unzip \
+    curl \
+&& docker-php-ext-configure gd --with-freetype --with-jpeg \
+&& docker-php-ext-install -j$(nproc) gd pdo_mysql zip intl opcache pdo \
+&& pecl install apcu \
+&& docker-php-ext-enable apcu \
+&& docker-php-ext-configure zip \
+&& docker-php-ext-install zip \
+&& install-php-extensions @composer \
+&& apt-get clean \
+&& rm -rf /var/lib/apt/lists/*
+
+# Копируем кастомный файл конфигурации PHP (php.ini) в директорию настроек PHP
+# Если у вас нет своего php.ini, эту строку можно удалить
+COPY php.ini /usr/local/etc/php/
+
+# Устанавливаем часовой пояс по умолчанию для PHP (Москва)
+# Создаём отдельный конфигурационный файл в conf.d, чтобы не трогать основной php.ini
+RUN echo "date.timezone = Europe/Moscow" > /usr/local/etc/php/conf.d/timezone.ini
+
+# Настраиваем локализацию для русского языка и кодировки UTF-8
+ENV LANG ru_RU.UTF-8
+ENV LC_ALL ru_RU.UTF-8
+ENV LC_MESSAGES C.UTF-8
+
+# Устанавливаем рабочую директорию внутри контейнера
+# Все последующие команды (COPY, RUN и т. д.) будут выполняться относительно этой директории
+WORKDIR /project
+
+# Указываем домашнюю директорию для Composer (менеджер зависимостей PHP)
+ENV COMPOSER_HOME=/tmp/composer
+# Создаём директорию для Composer и устанавливаем владельца (www-data)
+# Это нужно, чтобы пользователь www-data мог работать с Composer
+RUN mkdir -p $COMPOSER_HOME && chown www-data:www-data $COMPOSER_HOME
+
+ENV COMPOSER_HOME=/tmp/composer
+
+RUN $COMPOSER_HOME install
+
+# Определяем аргументы сборки, которые можно передать при сборке образа через --build-arg
+# USER_ID — ID пользователя на хосте
+# GROUP_ID — ID группы на хосте
+ARG USER_ID
+ARG GROUP_ID
+
+# Меняем ID пользователя www-data внутри контейнера на переданные значения
+# Это позволяет избежать проблем с правами доступа при монтировании volumes
+# Файлы, созданные внутри контейнера, будут принадлежать тому же пользователю, что и на хосте
+RUN usermod -u ${USER_ID} www-data && groupmod -g ${GROUP_ID} www-data
+
+# Переключаемся на пользователя www-data с указанными ID
+# Это повышает безопасность: приложение работает не от root
+USER "${USER_ID}:${GROUP_ID}"
